@@ -1,38 +1,40 @@
 import React, { useState, useEffect } from "react";
-import { View, TextInput, Button, FlatList, Text, StyleSheet, Alert } from "react-native";
-import { collection, addDoc, getDocs, query, where } from "firebase/firestore"; // Importar Firestore
+import { View, TextInput, Button, FlatList, Text, StyleSheet, Alert, TouchableOpacity } from "react-native";
+import { collection, addDoc, getDocs, query, where, doc, deleteDoc } from "firebase/firestore"; // Importações do Firestore
 import { db, auth } from "../firebaseConfig"; // Firestore e Auth configurados
+import { useNavigation } from '@react-navigation/native'; // Para navegação
+import { Swipeable } from "react-native-gesture-handler"; // Swipeable para capturar os gestos
 
 const ColecaoScreen = () => {
-  const [nomeColecao, setNomeColecao] = useState(""); // Estado para o nome da nova coleção
-  const [colecoes, setColecoes] = useState([]); // Estado para armazenar as coleções do usuário
+  const [nomeColecao, setNomeColecao] = useState(""); // Nome da nova coleção
+  const [colecoes, setColecoes] = useState([]); // Lista de coleções
 
-  const user = auth.currentUser; // Obtém o usuário atual logado
+  const user = auth.currentUser; // Usuário logado
+  const navigation = useNavigation(); // Para navegação
 
-  // Função para buscar coleções do Firestore
+  // Buscar as coleções do Firestore
   const fetchColecoes = async () => {
     try {
       const q = query(
         collection(db, "colecoes"),
-        where("userId", "==", user.uid) // Filtrar pelas coleções do usuário autenticado
+        where("userId", "==", user.uid)
       );
       const querySnapshot = await getDocs(q);
       const colecoesList = querySnapshot.docs.map((doc) => ({
         id: doc.id,
         ...doc.data(),
       }));
-      setColecoes(colecoesList); // Atualizar o estado com as coleções recuperadas
+      setColecoes(colecoesList);
     } catch (error) {
       console.error("Erro ao buscar coleções:", error);
     }
   };
 
-  // Chama a função para buscar coleções na primeira montagem do componente
   useEffect(() => {
     fetchColecoes();
   }, []);
 
-  // Função para adicionar uma nova coleção ao Firestore
+  // Adicionar nova coleção ao Firestore
   const handleAddColecao = async () => {
     if (nomeColecao.trim() === "") {
       Alert.alert("Erro", "O nome da coleção não pode estar vazio.");
@@ -40,22 +42,19 @@ const ColecaoScreen = () => {
     }
 
     try {
-      // Adiciona uma nova coleção ao Firestore
       const docRef = await addDoc(collection(db, "colecoes"), {
-        userId: user.uid, // ID do usuário autenticado
+        userId: user.uid,
         nome: nomeColecao,
-        valorTotal: 0, // Valor inicial
+        valorTotal: 0,
       });
-      
-      // Atualiza o estado com a nova coleção
+
       const novaColecao = {
         id: docRef.id,
         nome: nomeColecao,
         valorTotal: 0,
       };
-      setColecoes([...colecoes, novaColecao]); // Adiciona a nova coleção à lista existente
-
-      setNomeColecao(""); // Limpa o campo de entrada após adicionar
+      setColecoes([...colecoes, novaColecao]);
+      setNomeColecao("");
       Alert.alert("Sucesso", "Coleção criada com sucesso!");
     } catch (error) {
       console.error("Erro ao criar coleção:", error);
@@ -63,13 +62,59 @@ const ColecaoScreen = () => {
     }
   };
 
-  // Função para renderizar cada coleção na lista
-  const renderColecao = ({ item }) => (
-    <View style={styles.colecaoItem}>
-      <Text style={styles.colecaoNome}>{item.nome}</Text>
-      <Text style={styles.colecaoValor}>Valor total: R$ {item.valorTotal}</Text>
-    </View>
-  );
+  // Deletar uma coleção
+  const handleDeleteColecao = async (id) => {
+    try {
+      await deleteDoc(doc(db, "colecoes", id));
+      setColecoes(colecoes.filter((colecao) => colecao.id !== id));
+      Alert.alert("Sucesso", "Coleção deletada com sucesso.");
+    } catch (error) {
+      console.error("Erro ao deletar coleção:", error);
+      Alert.alert("Erro", "Não foi possível deletar a coleção.");
+    }
+  };
+
+  // Função para editar a coleção
+  const handleEditColecao = (id) => {
+    // Aqui você pode implementar a navegação para uma tela de edição ou abrir um modal
+    Alert.alert("Editar", "Funcionalidade de edição ainda não implementada.");
+  };
+
+  // Função para renderizar a coleção com swipe
+  const renderColecao = ({ item }) => {
+    const swipeRightActions = () => {
+      return (
+        <View style={styles.deleteAction}>
+          <Text style={styles.actionText}>Deletar</Text>
+        </View>
+      );
+    };
+
+    const swipeLeftActions = () => {
+      return (
+        <View style={styles.editAction}>
+          <Text style={styles.actionText}>Editar</Text>
+        </View>
+      );
+    };
+
+    return (
+      <Swipeable
+        renderRightActions={swipeRightActions} // Ação de deletar
+        onSwipeableRightOpen={() => handleDeleteColecao(item.id)}
+        renderLeftActions={swipeLeftActions} // Ação de editar
+        onSwipeableLeftOpen={() => handleEditColecao(item.id)}
+      >
+        <TouchableOpacity
+          onPress={() => navigation.navigate('Grupo', { colecaoId: item.id, nome: item.nome })}
+          style={styles.colecaoItem}
+        >
+          <Text style={styles.colecaoNome}>{item.nome}</Text>
+          <Text style={styles.colecaoValor}>Valor total: R$ {item.valorTotal}</Text>
+        </TouchableOpacity>
+      </Swipeable>
+    );
+  };
 
   return (
     <View style={styles.container}>
@@ -84,7 +129,7 @@ const ColecaoScreen = () => {
       />
       <Button title="Criar Coleção" onPress={handleAddColecao} />
 
-      {/* Exibe as coleções existentes */}
+      {/* Lista de coleções */}
       <FlatList
         data={colecoes}
         renderItem={renderColecao}
@@ -125,6 +170,21 @@ const styles = StyleSheet.create({
   colecaoValor: {
     fontSize: 16,
     marginTop: 4,
+  },
+  deleteAction: {
+    backgroundColor: "red",
+    justifyContent: "center",
+    alignItems: "flex-end",
+    padding: 20,
+  },
+  editAction: {
+    backgroundColor: "blue",
+    justifyContent: "center",
+    padding: 20,
+  },
+  actionText: {
+    color: "#fff",
+    fontWeight: "bold",
   },
 });
 
