@@ -2,15 +2,13 @@ import React, { useState, useEffect } from "react";
 import { View, TextInput, Button, FlatList, Text, StyleSheet, Alert, TouchableOpacity } from "react-native";
 import { collection, addDoc, getDocs, query, where, doc, deleteDoc } from "firebase/firestore"; // Firestore
 import { db, auth } from "../firebaseConfig"; // Firebase Config
-import { useNavigation, useRoute } from '@react-navigation/native'; // Navegação
+import { useNavigation } from '@react-navigation/native'; // Navegação
 import { Swipeable } from "react-native-gesture-handler"; // Swipeable para o gesto de swipe
 
 const GrupoScreen = () => {
   const [nomeGrupo, setNomeGrupo] = useState(""); // Nome do grupo
   const [grupos, setGrupos] = useState([]); // Lista de grupos
-
-  const route = useRoute(); // Usado para acessar os parâmetros passados na navegação
-  const { colecaoId } = route.params; // ID da coleção vindo do ColecaoScreen
+  const [colecaoId] = useState("Hqs_e_mangas"); // Definindo a coleção "Hqs e Mangás" como exemplo
   const user = auth.currentUser; // Usuário logado
   const navigation = useNavigation(); // Para navegação
 
@@ -76,38 +74,14 @@ const GrupoScreen = () => {
     }
   };
 
-  // Função para editar o grupo
-  const handleEditGrupo = (id) => {
-    Alert.alert("Editar", "Funcionalidade de edição ainda não implementada.");
-  };
-
-  // Função para renderizar cada grupo com swipe
+  // Função para renderizar cada grupo
   const renderGrupo = ({ item }) => {
-    const swipeRightActions = () => {
-      return (
-        <View style={styles.deleteAction}>
-          <Text style={styles.actionText}>Deletar</Text>
-        </View>
-      );
-    };
-
-    const swipeLeftActions = () => {
-      return (
-        <View style={styles.editAction}>
-          <Text style={styles.actionText}>Editar</Text>
-        </View>
-      );
-    };
-
     return (
       <Swipeable
-        renderRightActions={swipeRightActions} // Ação de deletar
         onSwipeableRightOpen={() => handleDeleteGrupo(item.id)}
-        renderLeftActions={swipeLeftActions} // Ação de editar
-        onSwipeableLeftOpen={() => handleEditGrupo(item.id)}
       >
         <TouchableOpacity
-          onPress={() => navigation.navigate('Item', { grupoId: item.id, nome: item.nome })} // Navegar para o ItemScreen
+          onPress={() => navigation.navigate('Item', { grupoId: item.id, colecaoId, nome: item.nome })} // Navegar para o ItemScreen com colecaoId e grupoId
           style={styles.grupoItem}
         >
           <Text style={styles.grupoNome}>{item.nome}</Text>
@@ -121,7 +95,6 @@ const GrupoScreen = () => {
     <View style={styles.container}>
       <Text style={styles.title}>Meus Grupos</Text>
 
-      {/* Campo para adicionar novo grupo */}
       <TextInput
         style={styles.input}
         placeholder="Nome do grupo"
@@ -130,7 +103,6 @@ const GrupoScreen = () => {
       />
       <Button title="Criar Grupo" onPress={handleAddGrupo} />
 
-      {/* Lista de grupos */}
       <FlatList
         data={grupos}
         renderItem={renderGrupo}
@@ -171,21 +143,6 @@ const styles = StyleSheet.create({
   grupoValor: {
     fontSize: 16,
     marginTop: 4,
-  },
-  deleteAction: {
-    backgroundColor: "red",
-    justifyContent: "center",
-    alignItems: "flex-end",
-    padding: 20,
-  },
-  editAction: {
-    backgroundColor: "blue",
-    justifyContent: "center",
-    padding: 20,
-  },
-  actionText: {
-    color: "#fff",
-    fontWeight: "bold",
   },
 });
 
