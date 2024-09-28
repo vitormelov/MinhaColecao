@@ -1,62 +1,63 @@
-import React, { useState, useEffect } from "react";
-import { View, TextInput, Button, FlatList, Text, StyleSheet, Alert, TouchableOpacity } from "react-native";
-import { collection, addDoc, getDocs, query, where, doc, deleteDoc, updateDoc, orderBy, getDoc } from "firebase/firestore"; // Firestore
-import { db, auth } from "../firebaseConfig"; // Firebase Config
-import { useNavigation, useRoute } from '@react-navigation/native'; // Navegação
-import { Swipeable } from "react-native-gesture-handler"; // Swipeable para capturar gestos de swipe
-
-// Função auxiliar para formatar números com duas casas decimais e separador de vírgula
-const formatValor = (valor) => {
-  return parseFloat(valor).toFixed(2).replace('.', ',');
-};
-
-// Função auxiliar para converter valor de string com vírgula para número
-const parseValor = (valor) => {
-  return parseFloat(valor.replace(',', '.'));
-};
+import React, { useState, useEffect } from 'react';
+import { View, TextInput, Button, FlatList, Text, StyleSheet, Alert } from 'react-native';
+import { collection, addDoc, getDocs, query, where, doc, updateDoc, getDoc } from 'firebase/firestore'; // Firestore
+import { db, auth } from '../firebaseConfig'; // Firebase Config
+import { useRoute, useNavigation } from '@react-navigation/native'; // Para navegação
 
 const ItemScreen = () => {
-  const [nomeItem, setNomeItem] = useState(""); // Nome do item
-  const [detalhes, setDetalhes] = useState(""); // Detalhes do item
-  const [dataAquisicao, setDataAquisicao] = useState(""); // Data de aquisição
-  const [valor, setValor] = useState(""); // Valor do item
-  const [itens, setItens] = useState([]); // Lista de itens
+  const [nomeItem, setNomeItem] = useState('');
+  const [detalhes, setDetalhes] = useState('');
+  const [dataAquisicao, setDataAquisicao] = useState('');
+  const [valor, setValor] = useState('');
+  const [itens, setItens] = useState([]);
   const [valorTotalGrupo, setValorTotalGrupo] = useState(0); // Valor total do grupo
 
-  const route = useRoute(); // Usado para acessar os parâmetros passados na navegação
-  const { grupoId, colecaoId, nome } = route.params; // ID do grupo, ID da coleção e nome do grupo
-  const user = auth.currentUser; // Usuário logado
+  const { grupoId, colecaoId, nome } = useRoute().params; // ID do grupo e da coleção
+  const user = auth.currentUser;
   const navigation = useNavigation(); // Para navegação
 
-  // Função para buscar os itens do grupo no Firestore
+  // Função para formatar o valor como moeda brasileira
+  const formatarValor = (valor) => {
+    return valor.toLocaleString('pt-BR', {
+      style: 'currency',
+      currency: 'BRL',
+      minimumFractionDigits: 2,
+    });
+  };
+
+  // Função para buscar itens do grupo no Firestore
   const fetchItens = async () => {
     try {
-      const q = query(
-        collection(db, "colecoes", colecaoId, "grupos", grupoId, "itens"), // Caminho correto para acessar os itens dentro do grupo
-        where("userId", "==", user.uid),
-        orderBy("dataCriacao", "desc")
-      );
+      const q = query(collection(db, 'colecoes', colecaoId, 'grupos', grupoId, 'itens'), where('userId', '==', user.uid));
       const querySnapshot = await getDocs(q);
-      const itensList = querySnapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      }));
+
+      // Log dos documentos retornados
+      console.log("Itens retornados do Firestore:", querySnapshot.docs);
+
+      const itensList = querySnapshot.docs.map((doc) => {
+        const data = doc.data();
+        // Log de cada item retornado
+        console.log("Dados do item:", data);
+
+        return {
+          id: doc.id,
+          nome: data.nome || 'Sem nome', // Definir um valor padrão se nome estiver indefinido
+          valor: data.valor !== undefined && !isNaN(data.valor) ? parseFloat(data.valor) : 0, // Garantir que 'valor' é um número válido
+          detalhes: data.detalhes || 'Sem detalhes', // Definir um valor padrão se detalhes estiverem indefinidos
+          dataAquisicao: data.dataAquisicao || 'Indefinido', // Garantir que a data não esteja indefinida
+          dataCriacao: data.dataCriacao || 'Desconhecido', // Valor padrão para data de criação
+        };
+      });
+
       setItens(itensList);
 
       // Calcula o valor total do grupo somando os valores dos itens
-      const total = itensList.reduce((acc, item) => acc + parseValor(item.valor), 0);
-      setValorTotalGrupo(formatValor(total)); // Formata o valor total com duas casas decimais e separador de vírgula
+      const total = itensList.reduce((acc, item) => acc + item.valor, 0);
+      setValorTotalGrupo(total); // Sem formatação aqui, usaremos a formatação diretamente na renderização
 
-      // Atualiza o valor total do grupo no Firestore
-      const grupoDoc = doc(db, "colecoes", colecaoId, "grupos", grupoId);
-      const grupoSnap = await getDoc(grupoDoc);
-      if (grupoSnap.exists()) {
-        await updateDoc(grupoDoc, { valorTotal: total.toFixed(2) });
-      } else {
-        console.error("Documento do grupo não encontrado.");
-      }
     } catch (error) {
-      console.error("Erro ao buscar itens:", error);
+      console.error('Erro ao buscar itens:', error);
+      Alert.alert('Erro', 'Não foi possível buscar os itens corretamente.');
     }
   };
 
@@ -66,128 +67,85 @@ const ItemScreen = () => {
 
   // Função para adicionar um novo item ao Firestore
   const handleAddItem = async () => {
-    if (nomeItem.trim() === "" || valor.trim() === "") {
-      Alert.alert("Erro", "O nome e o valor do item são obrigatórios.");
+    if (nomeItem.trim() === '' || valor.trim() === '') {
+      Alert.alert('Erro', 'O nome e o valor do item são obrigatórios.');
       return;
     }
 
-    // Verificar se o valor é um número válido
-    const valorNumerico = parseValor(valor);
-    if (isNaN(valorNumerico) || valorNumerico <= 0) {
-      Alert.alert("Erro", "O valor do item deve ser um número válido maior que 0.");
+    if (isNaN(parseFloat(valor)) || parseFloat(valor) <= 0) {
+      Alert.alert('Erro', 'O valor do item deve ser um número maior que 0.');
       return;
     }
 
     try {
-      const dataAquisicaoFormatada = dataAquisicao.trim() === "" ? "Indefinido" : dataAquisicao;
       const dataCriacao = new Date().toLocaleString(); // Data e hora de criação
 
-      const docRef = await addDoc(collection(db, "colecoes", colecaoId, "grupos", grupoId, "itens"), {
+      const docRef = await addDoc(collection(db, 'colecoes', colecaoId, 'grupos', grupoId, 'itens'), {
         userId: user.uid,
         nome: nomeItem,
-        detalhes: detalhes || "Sem detalhes", // Use um valor padrão se os detalhes não forem fornecidos
-        dataAquisicao: dataAquisicaoFormatada,
-        valor: valorNumerico.toFixed(2), // Certificar que o valor seja numérico e formatado com duas casas decimais
+        detalhes: detalhes || 'Sem detalhes',
+        dataAquisicao: dataAquisicao || 'Indefinido',
+        valor: parseFloat(valor),
         dataCriacao,
       });
 
       const novoItem = {
         id: docRef.id,
         nome: nomeItem,
-        detalhes: detalhes || "Sem detalhes",
-        dataAquisicao: dataAquisicaoFormatada,
-        valor: formatValor(valorNumerico), // Formata o valor com vírgula
+        detalhes: detalhes || 'Sem detalhes',
+        dataAquisicao: dataAquisicao || 'Indefinido',
+        valor: parseFloat(valor),
         dataCriacao,
       };
 
-      // Atualizar o estado com o novo item
+      // Atualiza o estado local imediatamente
       setItens([novoItem, ...itens]); // Adiciona o novo item à lista
+      setNomeItem('');
+      setDetalhes('');
+      setDataAquisicao('');
+      setValor('');
 
-      // Limpar os campos de entrada
-      setNomeItem("");
-      setDetalhes("");
-      setDataAquisicao("");
-      setValor("");
-      
-      Alert.alert("Sucesso", "Item criado com sucesso!");
+      Alert.alert('Sucesso', 'Item criado com sucesso!');
 
-      // Atualizar o valor total do grupo
-      const novoValorTotal = formatValor(parseValor(valorTotalGrupo) + valorNumerico);
-      setValorTotalGrupo(novoValorTotal);
+      // Recalcular o valor total do grupo
+      const novoValorTotalGrupo = valorTotalGrupo + parseFloat(valor);
+      setValorTotalGrupo(novoValorTotalGrupo);
 
-      // Atualizar o Firestore com o novo valor total do grupo
-      const grupoDoc = doc(db, "colecoes", colecaoId, "grupos", grupoId);
-      await updateDoc(grupoDoc, { valorTotal: novoValorTotal.replace(',', '.') });
+      // Atualiza o valor total do grupo no Firestore
+      const grupoDoc = doc(db, 'colecoes', colecaoId, 'grupos', grupoId);
+      await updateDoc(grupoDoc, { valorTotal: novoValorTotalGrupo });
+
+      // Atualiza o valor total da coleção
+      const colecaoDoc = doc(db, 'colecoes', colecaoId);
+      const colecaoSnap = await getDoc(colecaoDoc);
+      const valorTotalColecao = colecaoSnap.data().valorTotal ? parseFloat(colecaoSnap.data().valorTotal) : 0;
+      const novoValorTotalColecao = valorTotalColecao + parseFloat(valor);
+      await updateDoc(colecaoDoc, { valorTotal: novoValorTotalColecao });
+
+      // Retorna ao GrupoScreen, passando o novo valor total do grupo
+      navigation.navigate('Grupo', { grupoId, valorTotalGrupo: novoValorTotalGrupo });
+
     } catch (error) {
-      console.error("Erro ao criar item:", error);
-      Alert.alert("Erro", "Não foi possível criar o item.");
+      console.error('Erro ao criar item:', error);
+      Alert.alert('Erro', 'Não foi possível criar o item.');
     }
   };
 
-  // Função para deletar um item
-  const handleDeleteItem = async (id, valorItem) => {
-    try {
-      await deleteDoc(doc(db, "colecoes", colecaoId, "grupos", grupoId, "itens", id)); // Caminho correto para deletar o item dentro do grupo
-      setItens(itens.filter((item) => item.id !== id));
-      Alert.alert("Sucesso", "Item deletado com sucesso.");
-
-      // Atualizar o valor total do grupo
-      const novoValorTotal = formatValor(parseValor(valorTotalGrupo) - parseValor(valorItem));
-      setValorTotalGrupo(novoValorTotal);
-      await updateDoc(doc(db, "colecoes", colecaoId, "grupos", grupoId), { valorTotal: novoValorTotal.replace(',', '.') });
-    } catch (error) {
-      console.error("Erro ao deletar item:", error);
-      Alert.alert("Erro", "Não foi possível deletar o item.");
-    }
-  };
-
-  // Função para editar o item (exibe alerta por enquanto)
-  const handleEditItem = (id) => {
-    Alert.alert("Editar", "Funcionalidade de edição ainda não implementada.");
-  };
-
-  // Função para renderizar os itens com swipe
-  const renderItem = ({ item }) => {
-    const swipeRightActions = () => {
-      return (
-        <View style={styles.deleteAction}>
-          <Text style={styles.actionText}>Deletar</Text>
-        </View>
-      );
-    };
-
-    const swipeLeftActions = () => {
-      return (
-        <View style={styles.editAction}>
-          <Text style={styles.actionText}>Editar</Text>
-        </View>
-      );
-    };
-
-    return (
-      <Swipeable
-        renderRightActions={swipeRightActions} // Ação de deletar
-        onSwipeableRightOpen={() => handleDeleteItem(item.id, item.valor)}
-        renderLeftActions={swipeLeftActions} // Ação de editar
-        onSwipeableLeftOpen={() => handleEditItem(item.id)}
-      >
-        <TouchableOpacity style={styles.item}>
-          <Text style={styles.itemNome}>{item.nome}</Text>
-          <Text style={styles.itemDetalhes}>Detalhes: {item.detalhes}</Text>
-          <Text style={styles.itemData}>Data de aquisição: {item.dataAquisicao}</Text>
-          <Text style={styles.itemValor}>Valor: R$ {item.valor}</Text> 
-          <Text style={styles.itemDataCriacao}>Criado em: {item.dataCriacao}</Text>
-        </TouchableOpacity>
-      </Swipeable>
-    );
-  };
+  const renderItem = ({ item }) => (
+    <View style={styles.item}>
+      <Text style={styles.itemNome}>{item.nome}</Text>
+      <Text style={styles.itemDetalhes}>Detalhes: {item.detalhes}</Text>
+      <Text style={styles.itemData}>Data de aquisição: {item.dataAquisicao}</Text>
+      <Text style={styles.itemValor}>Valor: {formatarValor(item.valor)}</Text>
+      <Text style={styles.itemDataCriacao}>Criado em: {item.dataCriacao}</Text>
+    </View>
+  );
 
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Itens do Grupo: {nome}</Text>
-      <Text style={styles.valorTotal}>Valor total do grupo: R$ {valorTotalGrupo}</Text> 
+      <Text style={styles.valorTotal}>Valor total do grupo: {formatarValor(valorTotalGrupo)}</Text>
 
-      {/* Campo para adicionar novo item */}
       <TextInput
         style={styles.input}
         placeholder="Nome do item"
@@ -215,12 +173,15 @@ const ItemScreen = () => {
       />
       <Button title="Criar Item" onPress={handleAddItem} />
 
-      {/* Lista de itens */}
-      <FlatList
-        data={itens}
-        renderItem={renderItem}
-        keyExtractor={(item) => item.id}
-      />
+      {itens.length === 0 ? (
+        <Text style={styles.noItemsText}>Nenhum item encontrado. Adicione um item.</Text>
+      ) : (
+        <FlatList
+          data={itens}
+          renderItem={renderItem}
+          keyExtractor={(item) => item.id}
+        />
+      )}
     </View>
   );
 };
@@ -229,21 +190,21 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     padding: 16,
-    backgroundColor: "#fff",
+    backgroundColor: '#fff',
   },
   title: {
     fontSize: 24,
     marginBottom: 16,
-    textAlign: "center",
+    textAlign: 'center',
   },
   valorTotal: {
     fontSize: 18,
     marginBottom: 16,
-    textAlign: "center",
+    textAlign: 'center',
   },
   input: {
     height: 40,
-    borderColor: "#ccc",
+    borderColor: '#ccc',
     borderWidth: 1,
     marginBottom: 12,
     paddingHorizontal: 8,
@@ -251,12 +212,12 @@ const styles = StyleSheet.create({
   },
   item: {
     padding: 16,
-    borderBottomColor: "#ccc",
+    borderBottomColor: '#ccc',
     borderBottomWidth: 1,
   },
   itemNome: {
     fontSize: 18,
-    fontWeight: "bold",
+    fontWeight: 'bold',
   },
   itemDetalhes: {
     fontSize: 16,
@@ -268,27 +229,18 @@ const styles = StyleSheet.create({
   itemValor: {
     fontSize: 16,
     marginTop: 4,
-    color: "green",
+    color: 'green',
   },
   itemDataCriacao: {
     fontSize: 12,
     marginTop: 4,
-    color: "gray",
+    color: 'gray',
   },
-  deleteAction: {
-    backgroundColor: "red",
-    justifyContent: "center",
-    alignItems: "flex-end",
-    padding: 20,
-  },
-  editAction: {
-    backgroundColor: "blue",
-    justifyContent: "center",
-    padding: 20,
-  },
-  actionText: {
-    color: "#fff",
-    fontWeight: "bold",
+  noItemsText: {
+    textAlign: 'center',
+    fontSize: 16,
+    color: 'gray',
+    marginTop: 20,
   },
 });
 

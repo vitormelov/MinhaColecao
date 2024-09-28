@@ -1,32 +1,28 @@
-import React, { useState, useEffect } from "react";
-import { View, TextInput, Button, FlatList, Text, StyleSheet, Alert, TouchableOpacity } from "react-native";
-import { collection, addDoc, getDocs, query, where, doc, deleteDoc } from "firebase/firestore"; // Firestore
-import { db, auth } from "../firebaseConfig"; // Firebase Config
-import { useNavigation } from '@react-navigation/native'; // Navegação
-import { Swipeable } from "react-native-gesture-handler"; // Swipeable para o gesto de swipe
+import React, { useState, useEffect } from 'react';
+import { View, TextInput, Button, FlatList, Text, StyleSheet, TouchableOpacity, Alert } from 'react-native';
+import { collection, addDoc, getDocs, query, where } from 'firebase/firestore'; // Firestore
+import { db, auth } from '../firebaseConfig'; // Firebase Config
+import { useNavigation, useRoute } from '@react-navigation/native';
 
 const GrupoScreen = () => {
-  const [nomeGrupo, setNomeGrupo] = useState(""); // Nome do grupo
-  const [grupos, setGrupos] = useState([]); // Lista de grupos
-  const [colecaoId] = useState("Hqs_e_mangas"); // Definindo a coleção "Hqs e Mangás" como exemplo
-  const user = auth.currentUser; // Usuário logado
-  const navigation = useNavigation(); // Para navegação
+  const [nomeGrupo, setNomeGrupo] = useState('');
+  const [grupos, setGrupos] = useState([]);
+  const { colecaoId, valorTotalGrupo } = useRoute().params; // Valor total atualizado do grupo
+  const user = auth.currentUser;
+  const navigation = useNavigation();
 
-  // Função para buscar grupos da coleção no Firestore
+  // Função para buscar grupos no Firestore
   const fetchGrupos = async () => {
     try {
-      const q = query(
-        collection(db, "colecoes", colecaoId, "grupos"), // Referência para os grupos dentro da coleção
-        where("userId", "==", user.uid)
-      );
+      const q = query(collection(db, 'colecoes', colecaoId, 'grupos'), where('userId', '==', user.uid));
       const querySnapshot = await getDocs(q);
-      const gruposList = querySnapshot.docs.map((doc) => ({
+      const gruposList = querySnapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data(),
       }));
       setGrupos(gruposList);
     } catch (error) {
-      console.error("Erro ao buscar grupos:", error);
+      console.error('Erro ao buscar grupos:', error);
     }
   };
 
@@ -36,65 +32,53 @@ const GrupoScreen = () => {
 
   // Função para adicionar um novo grupo no Firestore
   const handleAddGrupo = async () => {
-    if (nomeGrupo.trim() === "") {
-      Alert.alert("Erro", "O nome do grupo não pode estar vazio.");
+    if (nomeGrupo.trim() === '') {
+      Alert.alert('Erro', 'O nome do grupo não pode estar vazio.');
       return;
     }
 
     try {
-      const docRef = await addDoc(collection(db, "colecoes", colecaoId, "grupos"), {
+      const docRef = await addDoc(collection(db, 'colecoes', colecaoId, 'grupos'), {
         userId: user.uid,
         nome: nomeGrupo,
-        valorTotal: 0, // Inicialmente, o valor total do grupo será 0
+        valorTotal: 0, // Inicializa valorTotal como 0
       });
 
       const novoGrupo = {
         id: docRef.id,
         nome: nomeGrupo,
-        valorTotal: 0,
+        valorTotal: 0, // Inicializa o valor no estado local também
       };
       setGrupos([...grupos, novoGrupo]);
-      setNomeGrupo("");
-      Alert.alert("Sucesso", "Grupo criado com sucesso!");
+      setNomeGrupo('');
+      Alert.alert('Sucesso', 'Grupo criado com sucesso!');
     } catch (error) {
-      console.error("Erro ao criar grupo:", error);
-      Alert.alert("Erro", "Não foi possível criar o grupo.");
+      console.error('Erro ao criar grupo:', error);
+      Alert.alert('Erro', 'Não foi possível criar o grupo.');
     }
   };
 
-  // Função para deletar um grupo
-  const handleDeleteGrupo = async (id) => {
-    try {
-      await deleteDoc(doc(db, "colecoes", colecaoId, "grupos", id));
-      setGrupos(grupos.filter((grupo) => grupo.id !== id));
-      Alert.alert("Sucesso", "Grupo deletado com sucesso.");
-    } catch (error) {
-      console.error("Erro ao deletar grupo:", error);
-      Alert.alert("Erro", "Não foi possível deletar o grupo.");
-    }
+  // Função para navegar para a tela de itens
+  const handleNavigateToItem = (grupoId, nome) => {
+    navigation.navigate('Item', { grupoId, colecaoId, nome }); // Navega para a tela ItemScreen com os parâmetros necessários
   };
 
   // Função para renderizar cada grupo
-  const renderGrupo = ({ item }) => {
+  const renderItem = ({ item }) => {
+    // O valor total exibido aqui é o resultado da soma dos itens do grupo
+    const valorTotal = typeof item.valorTotal === 'number' ? item.valorTotal : 0;
+
     return (
-      <Swipeable
-        onSwipeableRightOpen={() => handleDeleteGrupo(item.id)}
-      >
-        <TouchableOpacity
-          onPress={() => navigation.navigate('Item', { grupoId: item.id, colecaoId, nome: item.nome })} // Navegar para o ItemScreen com colecaoId e grupoId
-          style={styles.grupoItem}
-        >
-          <Text style={styles.grupoNome}>{item.nome}</Text>
-          <Text style={styles.grupoValor}>Valor total: R$ {item.valorTotal}</Text>
-        </TouchableOpacity>
-      </Swipeable>
+      <TouchableOpacity onPress={() => handleNavigateToItem(item.id, item.nome)} style={styles.grupoItem}>
+        <Text style={styles.grupoNome}>{item.nome}</Text>
+        {/* Atualiza para usar o valor total do ItemScreen se disponível */}
+        <Text style={styles.grupoValor}>Valor total do grupo: R$ {valorTotalGrupo || valorTotal.toFixed(2)}</Text>
+      </TouchableOpacity>
     );
   };
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Meus Grupos</Text>
-
       <TextInput
         style={styles.input}
         placeholder="Nome do grupo"
@@ -105,8 +89,8 @@ const GrupoScreen = () => {
 
       <FlatList
         data={grupos}
-        renderItem={renderGrupo}
-        keyExtractor={(item) => item.id}
+        renderItem={renderItem}
+        keyExtractor={item => item.id}
       />
     </View>
   );
@@ -116,16 +100,11 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     padding: 16,
-    backgroundColor: "#fff",
-  },
-  title: {
-    fontSize: 24,
-    marginBottom: 16,
-    textAlign: "center",
+    backgroundColor: '#fff',
   },
   input: {
     height: 40,
-    borderColor: "#ccc",
+    borderColor: '#ccc',
     borderWidth: 1,
     marginBottom: 12,
     paddingHorizontal: 8,
@@ -133,12 +112,12 @@ const styles = StyleSheet.create({
   },
   grupoItem: {
     padding: 16,
-    borderBottomColor: "#ccc",
+    borderBottomColor: '#ccc',
     borderBottomWidth: 1,
   },
   grupoNome: {
     fontSize: 18,
-    fontWeight: "bold",
+    fontWeight: 'bold',
   },
   grupoValor: {
     fontSize: 16,

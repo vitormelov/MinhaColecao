@@ -1,9 +1,10 @@
 // firebaseConfig.js
 import { initializeApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore"; // Certifique-se de importar o Firestore
-import { getAuth } from "firebase/auth";
+import { initializeAuth, getReactNativePersistence } from "firebase/auth";
+import AsyncStorage from '@react-native-async-storage/async-storage'; // Importa o AsyncStorage para persistência
 
-// Your web app's Firebase configuration
+// Sua configuração do Firebase
 const firebaseConfig = {
   apiKey: "AIzaSyAYOZjiPUiqy_BDuzhak8ke_E8TwygfKCw",
   authDomain: "minhacolecao-65290.firebaseapp.com",
@@ -17,6 +18,10 @@ const firebaseConfig = {
 // Inicializa o Firebase
 const app = initializeApp(firebaseConfig);
 
-// Exporta o Firestore e o Auth
-export const auth = getAuth(app);
-export const db = getFirestore(app); // Instância correta do Firestore
+// Inicializa o Auth com persistência usando AsyncStorage
+export const auth = initializeAuth(app, {
+  persistence: getReactNativePersistence(AsyncStorage), // Configura o Firebase Auth para persistência com AsyncStorage
+});
+
+// Instância do Firestore
+export const db = getFirestore(app); // Exporta o Firestore
