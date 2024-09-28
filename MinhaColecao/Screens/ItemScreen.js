@@ -8,7 +8,7 @@ const ItemScreen = () => {
   const [nomeItem, setNomeItem] = useState('');
   const [detalhes, setDetalhes] = useState('');
   const [dataAquisicao, setDataAquisicao] = useState('');
-  const [valor, setValor] = useState('');
+  const [valor, setValor] = useState(''); // Manter como string para tratar substituição
   const [itens, setItens] = useState([]);
   const [valorTotalGrupo, setValorTotalGrupo] = useState(0); // Valor total do grupo
 
@@ -31,29 +31,22 @@ const ItemScreen = () => {
       const q = query(collection(db, 'colecoes', colecaoId, 'grupos', grupoId, 'itens'), where('userId', '==', user.uid));
       const querySnapshot = await getDocs(q);
 
-      // Log dos documentos retornados
-      console.log("Itens retornados do Firestore:", querySnapshot.docs);
-
       const itensList = querySnapshot.docs.map((doc) => {
         const data = doc.data();
-        // Log de cada item retornado
-        console.log("Dados do item:", data);
-
         return {
           id: doc.id,
-          nome: data.nome || 'Sem nome', // Definir um valor padrão se nome estiver indefinido
-          valor: data.valor !== undefined && !isNaN(data.valor) ? parseFloat(data.valor) : 0, // Garantir que 'valor' é um número válido
-          detalhes: data.detalhes || 'Sem detalhes', // Definir um valor padrão se detalhes estiverem indefinidos
-          dataAquisicao: data.dataAquisicao || 'Indefinido', // Garantir que a data não esteja indefinida
-          dataCriacao: data.dataCriacao || 'Desconhecido', // Valor padrão para data de criação
+          nome: data.nome || 'Sem nome',
+          valor: data.valor !== undefined && !isNaN(data.valor) ? parseFloat(data.valor) : 0,
+          detalhes: data.detalhes || 'Sem detalhes',
+          dataAquisicao: data.dataAquisicao || 'Indefinido',
+          dataCriacao: data.dataCriacao || 'Desconhecido',
         };
       });
 
       setItens(itensList);
 
-      // Calcula o valor total do grupo somando os valores dos itens
       const total = itensList.reduce((acc, item) => acc + item.valor, 0);
-      setValorTotalGrupo(total); // Sem formatação aqui, usaremos a formatação diretamente na renderização
+      setValorTotalGrupo(total);
 
     } catch (error) {
       console.error('Erro ao buscar itens:', error);
@@ -67,25 +60,28 @@ const ItemScreen = () => {
 
   // Função para adicionar um novo item ao Firestore
   const handleAddItem = async () => {
-    if (nomeItem.trim() === '' || valor.trim() === '') {
+    // Substituir vírgula por ponto para garantir valor decimal válido
+    const valorDecimal = valor.replace(',', '.');
+
+    if (nomeItem.trim() === '' || valorDecimal.trim() === '') {
       Alert.alert('Erro', 'O nome e o valor do item são obrigatórios.');
       return;
     }
 
-    if (isNaN(parseFloat(valor)) || parseFloat(valor) <= 0) {
+    if (isNaN(parseFloat(valorDecimal)) || parseFloat(valorDecimal) <= 0) {
       Alert.alert('Erro', 'O valor do item deve ser um número maior que 0.');
       return;
     }
 
     try {
-      const dataCriacao = new Date().toLocaleString(); // Data e hora de criação
+      const dataCriacao = new Date().toLocaleString();
 
       const docRef = await addDoc(collection(db, 'colecoes', colecaoId, 'grupos', grupoId, 'itens'), {
         userId: user.uid,
         nome: nomeItem,
         detalhes: detalhes || 'Sem detalhes',
         dataAquisicao: dataAquisicao || 'Indefinido',
-        valor: parseFloat(valor),
+        valor: parseFloat(valorDecimal), // Agora com o ponto para decimal
         dataCriacao,
       });
 
@@ -94,12 +90,11 @@ const ItemScreen = () => {
         nome: nomeItem,
         detalhes: detalhes || 'Sem detalhes',
         dataAquisicao: dataAquisicao || 'Indefinido',
-        valor: parseFloat(valor),
+        valor: parseFloat(valorDecimal),
         dataCriacao,
       };
 
-      // Atualiza o estado local imediatamente
-      setItens([novoItem, ...itens]); // Adiciona o novo item à lista
+      setItens([novoItem, ...itens]);
       setNomeItem('');
       setDetalhes('');
       setDataAquisicao('');
@@ -107,22 +102,18 @@ const ItemScreen = () => {
 
       Alert.alert('Sucesso', 'Item criado com sucesso!');
 
-      // Recalcular o valor total do grupo
-      const novoValorTotalGrupo = valorTotalGrupo + parseFloat(valor);
+      const novoValorTotalGrupo = valorTotalGrupo + parseFloat(valorDecimal);
       setValorTotalGrupo(novoValorTotalGrupo);
 
-      // Atualiza o valor total do grupo no Firestore
       const grupoDoc = doc(db, 'colecoes', colecaoId, 'grupos', grupoId);
       await updateDoc(grupoDoc, { valorTotal: novoValorTotalGrupo });
 
-      // Atualiza o valor total da coleção
       const colecaoDoc = doc(db, 'colecoes', colecaoId);
       const colecaoSnap = await getDoc(colecaoDoc);
       const valorTotalColecao = colecaoSnap.data().valorTotal ? parseFloat(colecaoSnap.data().valorTotal) : 0;
-      const novoValorTotalColecao = valorTotalColecao + parseFloat(valor);
+      const novoValorTotalColecao = valorTotalColecao + parseFloat(valorDecimal);
       await updateDoc(colecaoDoc, { valorTotal: novoValorTotalColecao });
 
-      // Retorna ao GrupoScreen, passando o novo valor total do grupo
       navigation.navigate('Grupo', { grupoId, valorTotalGrupo: novoValorTotalGrupo });
 
     } catch (error) {
@@ -169,7 +160,7 @@ const ItemScreen = () => {
         placeholder="Valor (obrigatório)"
         value={valor}
         onChangeText={setValor}
-        keyboardType="numeric"
+        keyboardType="numeric" // Mantém o teclado numérico
       />
       <Button title="Criar Item" onPress={handleAddItem} />
 
