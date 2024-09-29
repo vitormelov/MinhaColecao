@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { View, TextInput, Button, FlatList, Text, StyleSheet, TouchableOpacity, Alert } from 'react-native';
-import { collection, addDoc, getDocs, query, where } from 'firebase/firestore'; // Firestore
+import { Swipeable } from 'react-native-gesture-handler';
+import { collection, addDoc, getDocs, query, where, doc, deleteDoc, updateDoc, getDoc } from 'firebase/firestore'; // Firestore
 import { db, auth } from '../firebaseConfig'; // Firebase Config
 import { useNavigation, useRoute } from '@react-navigation/native';
 
 const GrupoScreen = () => {
   const [nomeGrupo, setNomeGrupo] = useState('');
   const [grupos, setGrupos] = useState([]);
-  const { colecaoId, valorTotalGrupo } = useRoute().params; // Valor total atualizado do grupo
+  const { colecaoId } = useRoute().params; // ID da coleção
   const user = auth.currentUser;
   const navigation = useNavigation();
 
@@ -58,22 +59,77 @@ const GrupoScreen = () => {
     }
   };
 
-  // Função para navegar para a tela de itens
-  const handleNavigateToItem = (grupoId, nome) => {
-    navigation.navigate('Item', { grupoId, colecaoId, nome }); // Navega para a tela ItemScreen com os parâmetros necessários
+  // Função para deletar todos os itens de um grupo
+  const deleteAllItemsInGroup = async (grupoId) => {
+    const itensSnapshot = await getDocs(collection(db, 'colecoes', colecaoId, 'grupos', grupoId, 'itens'));
+    const deletePromises = itensSnapshot.docs.map((itemDoc) => deleteDoc(doc(db, 'colecoes', colecaoId, 'grupos', grupoId, 'itens', itemDoc.id)));
+    await Promise.all(deletePromises); // Deletar todos os itens do grupo
   };
+
+  // Função para deletar um grupo e seus itens
+  const handleDeleteGrupo = async (grupo) => {
+    try {
+      const grupoId = grupo.id;
+
+      // Deletar todos os itens dentro do grupo
+      await deleteAllItemsInGroup(grupoId);
+
+      // Deletar o grupo
+      await deleteDoc(doc(db, 'colecoes', colecaoId, 'grupos', grupoId));
+
+      // Atualizar o valor total da coleção
+      const novoValorTotalColecao = await atualizarValorTotalColecao(grupo.valorTotal * -1); // Subtrai o valor do grupo
+      Alert.alert('Sucesso', 'Grupo e itens deletados com sucesso!');
+
+      // Atualiza o estado local removendo o grupo
+      setGrupos(grupos.filter((g) => g.id !== grupoId));
+    } catch (error) {
+      console.error('Erro ao deletar grupo:', error);
+      Alert.alert('Erro', 'Não foi possível deletar o grupo.');
+    }
+  };
+
+  // Função para atualizar o valor total da coleção
+  const atualizarValorTotalColecao = async (valorAlteracao) => {
+    try {
+      const colecaoDocRef = doc(db, 'colecoes', colecaoId);
+      
+      // Obtém o documento da coleção
+      const colecaoSnapshot = await getDoc(colecaoDocRef);
+      
+      if (colecaoSnapshot.exists()) {
+        const valorAtualColecao = colecaoSnapshot.data().valorTotal || 0;
+        const novoValorTotalColecao = valorAtualColecao + valorAlteracao;
+
+        // Atualiza o valor total da coleção
+        await updateDoc(colecaoDocRef, { valorTotal: novoValorTotalColecao });
+        return novoValorTotalColecao;
+      } else {
+        console.error('Documento da coleção não encontrado!');
+        return 0;
+      }
+    } catch (error) {
+      console.error('Erro ao atualizar o valor da coleção:', error);
+      return 0;
+    }
+  };
+
+  // Função para renderizar as ações ao deslizar para deletar
+  const renderRightActions = (grupo) => (
+    <Button title="Deletar" color="red" onPress={() => handleDeleteGrupo(grupo)} />
+  );
 
   // Função para renderizar cada grupo
   const renderItem = ({ item }) => {
-    // O valor total exibido aqui é o resultado da soma dos itens do grupo
     const valorTotal = typeof item.valorTotal === 'number' ? item.valorTotal : 0;
 
     return (
-      <TouchableOpacity onPress={() => handleNavigateToItem(item.id, item.nome)} style={styles.grupoItem}>
-        <Text style={styles.grupoNome}>{item.nome}</Text>
-        {/* Atualiza para usar o valor total do ItemScreen se disponível */}
-        <Text style={styles.grupoValor}>Valor total do grupo: R$ {valorTotalGrupo || valorTotal.toFixed(2)}</Text>
-      </TouchableOpacity>
+      <Swipeable renderRightActions={() => renderRightActions(item)}>
+        <TouchableOpacity onPress={() => navigation.navigate('Item', { grupoId: item.id, colecaoId, nome: item.nome })} style={styles.grupoItem}>
+          <Text style={styles.grupoNome}>{item.nome}</Text>
+          <Text style={styles.grupoValor}>Valor total do grupo: R$ {valorTotal.toFixed(2)}</Text>
+        </TouchableOpacity>
+      </Swipeable>
     );
   };
 
@@ -90,7 +146,7 @@ const GrupoScreen = () => {
       <FlatList
         data={grupos}
         renderItem={renderItem}
-        keyExtractor={item => item.id}
+        keyExtractor={(item) => item.id}
       />
     </View>
   );
