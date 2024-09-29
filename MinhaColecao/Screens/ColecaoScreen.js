@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { View, TextInput, Button, FlatList, Text, StyleSheet, TouchableOpacity, Alert } from 'react-native';
-import { collection, addDoc, getDocs, query, where, updateDoc, doc, getDoc } from 'firebase/firestore'; // Firestore
+import { collection, addDoc, getDocs, query, where } from 'firebase/firestore'; // Firestore
 import { db, auth } from '../firebaseConfig'; // Firebase Config
 import { useNavigation } from '@react-navigation/native';
 
@@ -10,15 +10,31 @@ const ColecaoScreen = () => {
   const user = auth.currentUser;
   const navigation = useNavigation();
 
-  // Função para buscar coleções no Firestore
+  // Função para buscar coleções e seus grupos no Firestore
   const fetchColecoes = async () => {
     try {
       const q = query(collection(db, 'colecoes'), where('userId', '==', user.uid));
       const querySnapshot = await getDocs(q);
-      const colecaoList = querySnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-      }));
+      const colecaoList = [];
+
+      for (const doc of querySnapshot.docs) {
+        const colecaoData = doc.data();
+        const colecaoId = doc.id;
+
+        // Buscar todos os grupos dessa coleção
+        const gruposSnapshot = await getDocs(collection(db, 'colecoes', colecaoId, 'grupos'));
+        const valorTotalColecao = gruposSnapshot.docs.reduce((total, grupoDoc) => {
+          const grupoData = grupoDoc.data();
+          return total + (grupoData.valorTotal || 0);
+        }, 0);
+
+        colecaoList.push({
+          id: colecaoId,
+          nome: colecaoData.nome,
+          valorTotal: valorTotalColecao,
+        });
+      }
+
       setColecoes(colecaoList);
     } catch (error) {
       console.error('Erro ao buscar coleções:', error);
@@ -57,20 +73,12 @@ const ColecaoScreen = () => {
     }
   };
 
-  // Função para navegar para a tela de grupos
-  const handleNavigateToGrupo = (colecaoId, nome) => {
-    navigation.navigate('Grupo', { colecaoId, nome });
-  };
-
   // Função para renderizar cada coleção
   const renderItem = ({ item }) => {
-    // O valor total exibido aqui é o resultado da soma dos valores dos grupos da coleção
-    const valorTotal = typeof item.valorTotal === 'number' ? item.valorTotal : 0;
-
     return (
-      <TouchableOpacity onPress={() => handleNavigateToGrupo(item.id, item.nome)} style={styles.colecaoItem}>
+      <TouchableOpacity onPress={() => navigation.navigate('Grupo', { colecaoId: item.id, nome: item.nome })} style={styles.colecaoItem}>
         <Text style={styles.colecaoNome}>{item.nome}</Text>
-        <Text style={styles.colecaoValor}>Valor total da coleção: R$ {valorTotal.toFixed(2)}</Text>
+        <Text style={styles.colecaoValor}>Valor total da coleção: R$ {item.valorTotal.toFixed(2)}</Text>
       </TouchableOpacity>
     );
   };
@@ -88,7 +96,7 @@ const ColecaoScreen = () => {
       <FlatList
         data={colecoes}
         renderItem={renderItem}
-        keyExtractor={item => item.id}
+        keyExtractor={(item) => item.id}
       />
     </View>
   );

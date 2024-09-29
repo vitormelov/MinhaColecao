@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { View, TextInput, Button, FlatList, Text, StyleSheet, Alert } from 'react-native';
-import { collection, addDoc, getDocs, query, where, doc, updateDoc, getDoc } from 'firebase/firestore'; // Firestore
+import { Swipeable } from 'react-native-gesture-handler'; // Importar o componente Swipeable
+import { collection, addDoc, getDocs, query, where, doc, updateDoc, deleteDoc } from 'firebase/firestore'; // Firestore
 import { db, auth } from '../firebaseConfig'; // Firebase Config
 import { useRoute, useNavigation } from '@react-navigation/native'; // Para navegação
 
@@ -8,7 +9,7 @@ const ItemScreen = () => {
   const [nomeItem, setNomeItem] = useState('');
   const [detalhes, setDetalhes] = useState('');
   const [dataAquisicao, setDataAquisicao] = useState('');
-  const [valor, setValor] = useState(''); // Manter como string para tratar substituição
+  const [valor, setValor] = useState('');
   const [itens, setItens] = useState([]);
   const [valorTotalGrupo, setValorTotalGrupo] = useState(0); // Valor total do grupo
 
@@ -60,7 +61,6 @@ const ItemScreen = () => {
 
   // Função para adicionar um novo item ao Firestore
   const handleAddItem = async () => {
-    // Substituir vírgula por ponto para garantir valor decimal válido
     const valorDecimal = valor.replace(',', '.');
 
     if (nomeItem.trim() === '' || valorDecimal.trim() === '') {
@@ -81,7 +81,7 @@ const ItemScreen = () => {
         nome: nomeItem,
         detalhes: detalhes || 'Sem detalhes',
         dataAquisicao: dataAquisicao || 'Indefinido',
-        valor: parseFloat(valorDecimal), // Agora com o ponto para decimal
+        valor: parseFloat(valorDecimal),
         dataCriacao,
       });
 
@@ -108,11 +108,8 @@ const ItemScreen = () => {
       const grupoDoc = doc(db, 'colecoes', colecaoId, 'grupos', grupoId);
       await updateDoc(grupoDoc, { valorTotal: novoValorTotalGrupo });
 
-      const colecaoDoc = doc(db, 'colecoes', colecaoId);
-      const colecaoSnap = await getDoc(colecaoDoc);
-      const valorTotalColecao = colecaoSnap.data().valorTotal ? parseFloat(colecaoSnap.data().valorTotal) : 0;
-      const novoValorTotalColecao = valorTotalColecao + parseFloat(valorDecimal);
-      await updateDoc(colecaoDoc, { valorTotal: novoValorTotalColecao });
+      // Atualiza o valor total da coleção
+      await atualizarValorTotalColecao();
 
       navigation.navigate('Grupo', { grupoId, valorTotalGrupo: novoValorTotalGrupo });
 
@@ -122,14 +119,66 @@ const ItemScreen = () => {
     }
   };
 
+  // Função para deletar o item e atualizar o valor total do grupo e da coleção
+  const handleDeleteItem = async (item) => {
+    try {
+      const itemId = item.id;
+      const itemValor = item.valor; // Valor do item que será subtraído
+
+      // Deleta o item do Firestore
+      await deleteDoc(doc(db, 'colecoes', colecaoId, 'grupos', grupoId, 'itens', itemId));
+
+      // Atualiza o valor total do grupo
+      const novoValorTotalGrupo = valorTotalGrupo - itemValor;
+      setValorTotalGrupo(novoValorTotalGrupo);
+
+      const grupoDoc = doc(db, 'colecoes', colecaoId, 'grupos', grupoId);
+      await updateDoc(grupoDoc, { valorTotal: novoValorTotalGrupo });
+
+      // Atualiza o valor total da coleção
+      await atualizarValorTotalColecao();
+
+      // Remove o item da lista local
+      setItens(itens.filter((i) => i.id !== itemId));
+
+      Alert.alert('Sucesso', 'Item deletado e valores atualizados com sucesso!');
+    } catch (error) {
+      console.error('Erro ao deletar item:', error);
+      Alert.alert('Erro', 'Não foi possível deletar o item.');
+    }
+  };
+
+  // Função para atualizar o valor total da coleção com base na soma dos valores de todos os grupos
+  const atualizarValorTotalColecao = async () => {
+    try {
+      const gruposSnapshot = await getDocs(collection(db, 'colecoes', colecaoId, 'grupos'));
+
+      const valorTotalColecao = gruposSnapshot.docs.reduce((total, grupoDoc) => {
+        const grupoData = grupoDoc.data();
+        return total + (grupoData.valorTotal || 0);
+      }, 0);
+
+      const colecaoDoc = doc(db, 'colecoes', colecaoId);
+      await updateDoc(colecaoDoc, { valorTotal: valorTotalColecao });
+    } catch (error) {
+      console.error('Erro ao atualizar o valor da coleção:', error);
+    }
+  };
+
+  const renderRightActions = (item) => (
+    <Button title="Deletar" color="red" onPress={() => handleDeleteItem(item)} />
+  );
+
   const renderItem = ({ item }) => (
-    <View style={styles.item}>
-      <Text style={styles.itemNome}>{item.nome}</Text>
-      <Text style={styles.itemDetalhes}>Detalhes: {item.detalhes}</Text>
-      <Text style={styles.itemData}>Data de aquisição: {item.dataAquisicao}</Text>
-      <Text style={styles.itemValor}>Valor: {formatarValor(item.valor)}</Text>
-      <Text style={styles.itemDataCriacao}>Criado em: {item.dataCriacao}</Text>
-    </View>
+    <Swipeable renderRightActions={() => renderRightActions(item)}>
+      <View style={styles.item}>
+        <Text style={styles.itemNome}>{item.nome}</Text>
+        <Text style={styles.itemDetalhes}>Detalhes: {item.detalhes}</Text>
+        <Text style={styles.itemData}>Data de aquisição: {item.dataAquisicao}</Text>
+        <Text style={styles.itemValor}>Valor: {formatarValor(item.valor)}</Text>
+        <Text style={styles.itemDataCriacao}>Criado em: {item.dataCriacao}</Text>
+      </View>
+    </Swipeable>
   );
 
   return (
@@ -160,7 +209,7 @@ const ItemScreen = () => {
         placeholder="Valor (obrigatório)"
         value={valor}
         onChangeText={setValor}
-        keyboardType="numeric" // Mantém o teclado numérico
+        keyboardType="numeric"
       />
       <Button title="Criar Item" onPress={handleAddItem} />
 
