@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { View, TextInput, Button, FlatList, Text, StyleSheet, Alert } from 'react-native';
-import { Swipeable } from 'react-native-gesture-handler'; // Importar o componente Swipeable
-import { collection, addDoc, getDocs, query, where, doc, updateDoc, deleteDoc } from 'firebase/firestore'; // Firestore
+import { View, TextInput, Button, FlatList, Text, StyleSheet, Alert, Modal } from 'react-native';
+import { Swipeable } from 'react-native-gesture-handler';
+import { collection, addDoc, getDocs, query, where, doc, updateDoc, deleteDoc, getDoc } from 'firebase/firestore'; // Firestore
 import { db, auth } from '../firebaseConfig'; // Firebase Config
-import { useRoute, useNavigation } from '@react-navigation/native'; // Para navegação
+import { useRoute, useNavigation } from '@react-navigation/native';
 
 const ItemScreen = () => {
   const [nomeItem, setNomeItem] = useState('');
@@ -12,6 +12,9 @@ const ItemScreen = () => {
   const [valor, setValor] = useState('');
   const [itens, setItens] = useState([]);
   const [valorTotalGrupo, setValorTotalGrupo] = useState(0); // Valor total do grupo
+  const [editandoItem, setEditandoItem] = useState(null); // Estado para o item que está sendo editado
+  const [valorOriginal, setValorOriginal] = useState(null); // Valor original do item antes de edição
+  const [isModalVisible, setIsModalVisible] = useState(false); // Controle do modal
 
   const { grupoId, colecaoId, nome } = useRoute().params; // ID do grupo e da coleção
   const user = auth.currentUser;
@@ -148,29 +151,90 @@ const ItemScreen = () => {
     }
   };
 
-  // Função para atualizar o valor total da coleção com base na soma dos valores de todos os grupos
-  const atualizarValorTotalColecao = async () => {
+  // Função para abrir o modal de edição com os dados do item
+  const handleEditItem = (item) => {
+    setEditandoItem(item); // Define o item que está sendo editado
+    setNomeItem(item.nome);
+    setDetalhes(item.detalhes);
+    setDataAquisicao(item.dataAquisicao);
+    setValor(item.valor.toString().replace('.', ','));
+    setValorOriginal(item.valor); // Armazena o valor original do item para calcular a diferença
+    setIsModalVisible(true); // Abre o modal de edição
+  };
+
+  // Função para salvar as edições de um item
+  const handleSaveEdit = async () => {
     try {
-      const gruposSnapshot = await getDocs(collection(db, 'colecoes', colecaoId, 'grupos'));
+      const valorDecimal = valor.replace(',', '.');
+      if (isNaN(parseFloat(valorDecimal)) || parseFloat(valorDecimal) <= 0) {
+        Alert.alert('Erro', 'O valor do item deve ser um número maior que 0.');
+        return;
+      }
 
-      const valorTotalColecao = gruposSnapshot.docs.reduce((total, grupoDoc) => {
-        const grupoData = grupoDoc.data();
-        return total + (grupoData.valorTotal || 0);
-      }, 0);
+      const itemDocRef = doc(db, 'colecoes', colecaoId, 'grupos', grupoId, 'itens', editandoItem.id);
+      await updateDoc(itemDocRef, {
+        nome: nomeItem,
+        detalhes: detalhes,
+        dataAquisicao: dataAquisicao || 'Indefinido',
+        valor: parseFloat(valorDecimal),
+      });
 
-      const colecaoDoc = doc(db, 'colecoes', colecaoId);
-      await updateDoc(colecaoDoc, { valorTotal: valorTotalColecao });
+      // Atualiza o estado local com o item editado
+      const itensAtualizados = itens.map((item) =>
+        item.id === editandoItem.id
+          ? { ...item, nome: nomeItem, detalhes: detalhes, dataAquisicao: dataAquisicao, valor: parseFloat(valorDecimal) }
+          : item
+      );
+      setItens(itensAtualizados);
+
+      // Atualiza o valor total do grupo com base na diferença entre o valor original e o novo valor
+      const diferencaValor = parseFloat(valorDecimal) - valorOriginal;
+      const novoValorTotalGrupo = valorTotalGrupo + diferencaValor;
+      setValorTotalGrupo(novoValorTotalGrupo);
+
+      const grupoDoc = doc(db, 'colecoes', colecaoId, 'grupos', grupoId);
+      await updateDoc(grupoDoc, { valorTotal: novoValorTotalGrupo });
+
+      // Atualiza o valor total da coleção
+      await atualizarValorTotalColecao(diferencaValor);
+
+      setIsModalVisible(false); // Fecha o modal
+      setEditandoItem(null); // Limpa o item que estava sendo editado
+      Alert.alert('Sucesso', 'Item atualizado com sucesso!');
+    } catch (error) {
+      console.error('Erro ao atualizar item:', error);
+      Alert.alert('Erro', 'Não foi possível atualizar o item.');
+    }
+  };
+
+  // Função para atualizar o valor total da coleção
+  const atualizarValorTotalColecao = async (diferencaValor = 0) => {
+    try {
+      const colecaoDocRef = doc(db, 'colecoes', colecaoId);
+      const colecaoSnapshot = await getDoc(colecaoDocRef);
+
+      if (colecaoSnapshot.exists()) {
+        const valorAtualColecao = colecaoSnapshot.data().valorTotal || 0;
+        const novoValorTotalColecao = valorAtualColecao + diferencaValor;
+
+        await updateDoc(colecaoDocRef, { valorTotal: novoValorTotalColecao });
+      }
     } catch (error) {
       console.error('Erro ao atualizar o valor da coleção:', error);
     }
   };
+
+  // Função para renderizar as ações ao deslizar para a esquerda (editar) ou direita (deletar)
+  const renderLeftActions = (item) => (
+    <Button title="Editar" onPress={() => handleEditItem(item)} />
+  );
 
   const renderRightActions = (item) => (
     <Button title="Deletar" color="red" onPress={() => handleDeleteItem(item)} />
   );
 
   const renderItem = ({ item }) => (
-    <Swipeable renderRightActions={() => renderRightActions(item)}>
+    <Swipeable renderRightActions={() => renderRightActions(item)} renderLeftActions={() => renderLeftActions(item)}>
       <View style={styles.item}>
         <Text style={styles.itemNome}>{item.nome}</Text>
         <Text style={styles.itemDetalhes}>Detalhes: {item.detalhes}</Text>
@@ -211,7 +275,7 @@ const ItemScreen = () => {
         onChangeText={setValor}
         keyboardType="numeric"
       />
-      <Button title="Criar Item" onPress={handleAddItem} />
+      <Button title={editandoItem ? "Salvar Alterações" : "Criar Item"} onPress={editandoItem ? handleSaveEdit : handleAddItem} />
 
       {itens.length === 0 ? (
         <Text style={styles.noItemsText}>Nenhum item encontrado. Adicione um item.</Text>
@@ -222,6 +286,40 @@ const ItemScreen = () => {
           keyExtractor={(item) => item.id}
         />
       )}
+
+      {/* Modal para editar item */}
+      <Modal visible={isModalVisible} animationType="slide">
+        <View style={styles.modalContainer}>
+          <Text style={styles.modalTitle}>Editar Item</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Nome do item"
+            value={nomeItem}
+            onChangeText={setNomeItem}
+          />
+          <TextInput
+            style={styles.input}
+            placeholder="Detalhes (opcional)"
+            value={detalhes}
+            onChangeText={setDetalhes}
+          />
+          <TextInput
+            style={styles.input}
+            placeholder="Data de aquisição (opcional)"
+            value={dataAquisicao}
+            onChangeText={setDataAquisicao}
+          />
+          <TextInput
+            style={styles.input}
+            placeholder="Valor (obrigatório)"
+            value={valor}
+            onChangeText={setValor}
+            keyboardType="numeric"
+          />
+          <Button title="Salvar" onPress={handleSaveEdit} />
+          <Button title="Cancelar" onPress={() => setIsModalVisible(false)} color="red" />
+        </View>
+      </Modal>
     </View>
   );
 };
@@ -281,6 +379,16 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: 'gray',
     marginTop: 20,
+  },
+  modalContainer: {
+    flex: 1,
+    padding: 16,
+    justifyContent: 'center',
+  },
+  modalTitle: {
+    fontSize: 22,
+    marginBottom: 16,
+    textAlign: 'center',
   },
 });
 
