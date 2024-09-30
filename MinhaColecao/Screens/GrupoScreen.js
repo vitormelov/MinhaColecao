@@ -1,13 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { View, TextInput, Button, FlatList, Text, StyleSheet, TouchableOpacity, Alert } from 'react-native';
+import { View, TextInput, Button, FlatList, Text, StyleSheet, TouchableOpacity, Alert, Modal } from 'react-native';
 import { Swipeable } from 'react-native-gesture-handler';
-import { collection, addDoc, getDocs, query, where, doc, deleteDoc, updateDoc, getDoc } from 'firebase/firestore'; // Firestore
+import { collection, addDoc, getDocs, query, where, doc, updateDoc, deleteDoc } from 'firebase/firestore'; // Firestore
 import { db, auth } from '../firebaseConfig'; // Firebase Config
 import { useNavigation, useRoute } from '@react-navigation/native';
 
 const GrupoScreen = () => {
   const [nomeGrupo, setNomeGrupo] = useState('');
   const [grupos, setGrupos] = useState([]);
+  const [editandoGrupo, setEditandoGrupo] = useState(null); // Estado para o grupo que está sendo editado
+  const [isModalVisible, setIsModalVisible] = useState(false); // Controle do modal
   const { colecaoId } = useRoute().params; // ID da coleção
   const user = auth.currentUser;
   const navigation = useNavigation();
@@ -77,8 +79,6 @@ const GrupoScreen = () => {
       // Deletar o grupo
       await deleteDoc(doc(db, 'colecoes', colecaoId, 'grupos', grupoId));
 
-      // Atualizar o valor total da coleção
-      const novoValorTotalColecao = await atualizarValorTotalColecao(grupo.valorTotal * -1); // Subtrai o valor do grupo
       Alert.alert('Sucesso', 'Grupo e itens deletados com sucesso!');
 
       // Atualiza o estado local removendo o grupo
@@ -89,32 +89,44 @@ const GrupoScreen = () => {
     }
   };
 
-  // Função para atualizar o valor total da coleção
-  const atualizarValorTotalColecao = async (valorAlteracao) => {
-    try {
-      const colecaoDocRef = doc(db, 'colecoes', colecaoId);
-      
-      // Obtém o documento da coleção
-      const colecaoSnapshot = await getDoc(colecaoDocRef);
-      
-      if (colecaoSnapshot.exists()) {
-        const valorAtualColecao = colecaoSnapshot.data().valorTotal || 0;
-        const novoValorTotalColecao = valorAtualColecao + valorAlteracao;
+  // Função para abrir o modal de edição com os dados do grupo
+  const handleEditGrupo = (grupo) => {
+    setEditandoGrupo(grupo); // Define o grupo que está sendo editado
+    setNomeGrupo(grupo.nome); // Preenche o campo com o nome atual do grupo
+    setIsModalVisible(true); // Abre o modal de edição
+  };
 
-        // Atualiza o valor total da coleção
-        await updateDoc(colecaoDocRef, { valorTotal: novoValorTotalColecao });
-        return novoValorTotalColecao;
-      } else {
-        console.error('Documento da coleção não encontrado!');
-        return 0;
+  // Função para salvar as edições do grupo
+  const handleSaveEdit = async () => {
+    try {
+      if (nomeGrupo.trim() === '') {
+        Alert.alert('Erro', 'O nome do grupo não pode estar vazio.');
+        return;
       }
+
+      const grupoDocRef = doc(db, 'colecoes', colecaoId, 'grupos', editandoGrupo.id);
+      await updateDoc(grupoDocRef, { nome: nomeGrupo });
+
+      // Atualiza o estado local com o nome editado
+      const gruposAtualizados = grupos.map((grupo) =>
+        grupo.id === editandoGrupo.id ? { ...grupo, nome: nomeGrupo } : grupo
+      );
+      setGrupos(gruposAtualizados);
+
+      setIsModalVisible(false); // Fecha o modal
+      setEditandoGrupo(null); // Limpa o grupo que estava sendo editado
+      Alert.alert('Sucesso', 'Nome do grupo atualizado com sucesso!');
     } catch (error) {
-      console.error('Erro ao atualizar o valor da coleção:', error);
-      return 0;
+      console.error('Erro ao atualizar o grupo:', error);
+      Alert.alert('Erro', 'Não foi possível atualizar o grupo.');
     }
   };
 
-  // Função para renderizar as ações ao deslizar para deletar
+  // Função para renderizar as ações ao deslizar para a esquerda (editar) ou direita (deletar)
+  const renderLeftActions = (grupo) => (
+    <Button title="Editar" onPress={() => handleEditGrupo(grupo)} />
+  );
+
   const renderRightActions = (grupo) => (
     <Button title="Deletar" color="red" onPress={() => handleDeleteGrupo(grupo)} />
   );
@@ -124,7 +136,7 @@ const GrupoScreen = () => {
     const valorTotal = typeof item.valorTotal === 'number' ? item.valorTotal : 0;
 
     return (
-      <Swipeable renderRightActions={() => renderRightActions(item)}>
+      <Swipeable renderRightActions={() => renderRightActions(item)} renderLeftActions={() => renderLeftActions(item)}>
         <TouchableOpacity onPress={() => navigation.navigate('Item', { grupoId: item.id, colecaoId, nome: item.nome })} style={styles.grupoItem}>
           <Text style={styles.grupoNome}>{item.nome}</Text>
           <Text style={styles.grupoValor}>Valor total do grupo: R$ {valorTotal.toFixed(2)}</Text>
@@ -148,6 +160,21 @@ const GrupoScreen = () => {
         renderItem={renderItem}
         keyExtractor={(item) => item.id}
       />
+
+      {/* Modal para editar o nome do grupo */}
+      <Modal visible={isModalVisible} animationType="slide">
+        <View style={styles.modalContainer}>
+          <Text style={styles.modalTitle}>Editar Nome do Grupo</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Nome do grupo"
+            value={nomeGrupo}
+            onChangeText={setNomeGrupo}
+          />
+          <Button title="Salvar" onPress={handleSaveEdit} />
+          <Button title="Cancelar" onPress={() => setIsModalVisible(false)} color="red" />
+        </View>
+      </Modal>
     </View>
   );
 };
@@ -178,6 +205,16 @@ const styles = StyleSheet.create({
   grupoValor: {
     fontSize: 16,
     marginTop: 4,
+  },
+  modalContainer: {
+    flex: 1,
+    padding: 16,
+    justifyContent: 'center',
+  },
+  modalTitle: {
+    fontSize: 22,
+    marginBottom: 16,
+    textAlign: 'center',
   },
 });
 

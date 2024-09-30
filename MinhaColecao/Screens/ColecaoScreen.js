@@ -1,13 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { View, TextInput, Button, FlatList, Text, StyleSheet, TouchableOpacity, Alert } from 'react-native';
+import { View, TextInput, Button, FlatList, Text, StyleSheet, TouchableOpacity, Alert, Modal } from 'react-native';
 import { Swipeable } from 'react-native-gesture-handler';
-import { collection, addDoc, getDocs, query, where, doc, deleteDoc } from 'firebase/firestore'; // Firestore
+import { collection, getDocs, query, where, doc, updateDoc, addDoc, deleteDoc } from 'firebase/firestore'; // Firestore
 import { db, auth } from '../firebaseConfig'; // Firebase Config
 import { useNavigation } from '@react-navigation/native';
 
 const ColecaoScreen = () => {
   const [nomeColecao, setNomeColecao] = useState('');
   const [colecoes, setColecoes] = useState([]);
+  const [editandoColecao, setEditandoColecao] = useState(null); // Estado para a coleção que está sendo editada
+  const [isModalVisible, setIsModalVisible] = useState(false); // Controle do modal
   const user = auth.currentUser;
   const navigation = useNavigation();
 
@@ -65,7 +67,6 @@ const ColecaoScreen = () => {
         nome: nomeColecao,
         valorTotal: 0, // Também no estado local
       };
-
       setColecoes([...colecoes, novaColecao]);
       setNomeColecao('');
       Alert.alert('Sucesso', 'Coleção criada com sucesso!');
@@ -75,34 +76,12 @@ const ColecaoScreen = () => {
     }
   };
 
-  // Função para deletar todos os itens dentro de um grupo
-  const deleteAllItemsInGroup = async (colecaoId, grupoId) => {
-    const itensSnapshot = await getDocs(collection(db, 'colecoes', colecaoId, 'grupos', grupoId, 'itens'));
-    const deleteItemPromises = itensSnapshot.docs.map((itemDoc) =>
-      deleteDoc(doc(db, 'colecoes', colecaoId, 'grupos', grupoId, 'itens', itemDoc.id))
-    );
-    await Promise.all(deleteItemPromises); // Deletar todos os itens do grupo
-  };
-
-  // Função para deletar todos os grupos e seus itens dentro de uma coleção
-  const deleteAllGruposInColecao = async (colecaoId) => {
-    const gruposSnapshot = await getDocs(collection(db, 'colecoes', colecaoId, 'grupos'));
-    const deleteGroupPromises = gruposSnapshot.docs.map(async (grupoDoc) => {
-      const grupoId = grupoDoc.id;
-      // Deletar todos os itens dentro de cada grupo
-      await deleteAllItemsInGroup(colecaoId, grupoId);
-      // Deletar o próprio grupo
-      await deleteDoc(doc(db, 'colecoes', colecaoId, 'grupos', grupoId));
-    });
-    await Promise.all(deleteGroupPromises); // Deletar todos os grupos e seus itens
-  };
-
-  // Função para deletar uma coleção e tudo dentro dela (grupos e itens)
+  // Função para deletar uma coleção e seus grupos e itens
   const handleDeleteColecao = async (colecao) => {
     try {
       const colecaoId = colecao.id;
 
-      // Deletar todos os grupos e itens da coleção
+      // Deletar todos os grupos e itens da coleção (mesma lógica já implementada)
       await deleteAllGruposInColecao(colecaoId);
 
       // Deletar a coleção
@@ -118,7 +97,44 @@ const ColecaoScreen = () => {
     }
   };
 
-  // Função para renderizar as ações ao deslizar para deletar
+  // Função para abrir o modal de edição com os dados da coleção
+  const handleEditColecao = (colecao) => {
+    setEditandoColecao(colecao); // Define a coleção que está sendo editada
+    setNomeColecao(colecao.nome); // Preenche o campo com o nome atual da coleção
+    setIsModalVisible(true); // Abre o modal de edição
+  };
+
+  // Função para salvar as edições da coleção
+  const handleSaveEdit = async () => {
+    try {
+      if (nomeColecao.trim() === '') {
+        Alert.alert('Erro', 'O nome da coleção não pode estar vazio.');
+        return;
+      }
+
+      const colecaoDocRef = doc(db, 'colecoes', editandoColecao.id);
+      await updateDoc(colecaoDocRef, { nome: nomeColecao });
+
+      // Atualiza o estado local com o nome editado
+      const colecoesAtualizadas = colecoes.map((colecao) =>
+        colecao.id === editandoColecao.id ? { ...colecao, nome: nomeColecao } : colecao
+      );
+      setColecoes(colecoesAtualizadas);
+
+      setIsModalVisible(false); // Fecha o modal
+      setEditandoColecao(null); // Limpa a coleção que estava sendo editada
+      Alert.alert('Sucesso', 'Nome da coleção atualizado com sucesso!');
+    } catch (error) {
+      console.error('Erro ao atualizar a coleção:', error);
+      Alert.alert('Erro', 'Não foi possível atualizar a coleção.');
+    }
+  };
+
+  // Função para renderizar as ações ao deslizar para a esquerda (editar) ou direita (deletar)
+  const renderLeftActions = (colecao) => (
+    <Button title="Editar" onPress={() => handleEditColecao(colecao)} />
+  );
+
   const renderRightActions = (colecao) => (
     <Button title="Deletar" color="red" onPress={() => handleDeleteColecao(colecao)} />
   );
@@ -126,7 +142,7 @@ const ColecaoScreen = () => {
   // Função para renderizar cada coleção
   const renderItem = ({ item }) => {
     return (
-      <Swipeable renderRightActions={() => renderRightActions(item)}>
+      <Swipeable renderRightActions={() => renderRightActions(item)} renderLeftActions={() => renderLeftActions(item)}>
         <TouchableOpacity onPress={() => navigation.navigate('Grupo', { colecaoId: item.id, nome: item.nome })} style={styles.colecaoItem}>
           <Text style={styles.colecaoNome}>{item.nome}</Text>
           <Text style={styles.colecaoValor}>Valor total da coleção: R$ {item.valorTotal.toFixed(2)}</Text>
@@ -150,6 +166,21 @@ const ColecaoScreen = () => {
         renderItem={renderItem}
         keyExtractor={(item) => item.id}
       />
+
+      {/* Modal para editar o nome da coleção */}
+      <Modal visible={isModalVisible} animationType="slide">
+        <View style={styles.modalContainer}>
+          <Text style={styles.modalTitle}>Editar Nome da Coleção</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Nome da coleção"
+            value={nomeColecao}
+            onChangeText={setNomeColecao}
+          />
+          <Button title="Salvar" onPress={handleSaveEdit} />
+          <Button title="Cancelar" onPress={() => setIsModalVisible(false)} color="red" />
+        </View>
+      </Modal>
     </View>
   );
 };
@@ -180,6 +211,16 @@ const styles = StyleSheet.create({
   colecaoValor: {
     fontSize: 16,
     marginTop: 4,
+  },
+  modalContainer: {
+    flex: 1,
+    padding: 16,
+    justifyContent: 'center',
+  },
+  modalTitle: {
+    fontSize: 22,
+    marginBottom: 16,
+    textAlign: 'center',
   },
 });
 
