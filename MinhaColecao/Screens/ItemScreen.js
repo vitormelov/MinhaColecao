@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { View, TextInput, Button, FlatList, Text, StyleSheet, Alert, Modal } from 'react-native';
+import { View, TextInput, Button, FlatList, Text, StyleSheet, Alert, Modal, ActivityIndicator } from 'react-native';
 import { Swipeable } from 'react-native-gesture-handler';
 import { collection, addDoc, getDocs, query, where, doc, updateDoc, deleteDoc, getDoc } from 'firebase/firestore'; // Firestore
 import { db, auth } from '../firebaseConfig'; // Firebase Config
-import { useRoute, useNavigation } from '@react-navigation/native';
+import { useRoute, useNavigation, useFocusEffect } from '@react-navigation/native';
 
 const ItemScreen = () => {
   const [nomeItem, setNomeItem] = useState('');
@@ -15,6 +15,7 @@ const ItemScreen = () => {
   const [editandoItem, setEditandoItem] = useState(null); // Estado para o item que está sendo editado
   const [valorOriginal, setValorOriginal] = useState(null); // Valor original do item antes de edição
   const [isModalVisible, setIsModalVisible] = useState(false); // Controle do modal
+  const [loading, setLoading] = useState(true); // Indicador de carregamento
 
   const { grupoId, colecaoId, nome } = useRoute().params; // ID do grupo e da coleção
   const user = auth.currentUser;
@@ -51,16 +52,19 @@ const ItemScreen = () => {
 
       const total = itensList.reduce((acc, item) => acc + item.valor, 0);
       setValorTotalGrupo(total);
-
     } catch (error) {
       console.error('Erro ao buscar itens:', error);
       Alert.alert('Erro', 'Não foi possível buscar os itens corretamente.');
     }
   };
 
-  useEffect(() => {
-    fetchItens();
-  }, []);
+  // Usar o hook useFocusEffect para atualizar os itens sempre que a tela é focada
+  useFocusEffect(
+    React.useCallback(() => {
+      setLoading(true);
+      fetchItens().finally(() => setLoading(false));
+    }, [])
+  );
 
   // Função para adicionar um novo item ao Firestore
   const handleAddItem = async () => {
@@ -97,6 +101,7 @@ const ItemScreen = () => {
         dataCriacao,
       };
 
+      // Atualiza a lista de itens localmente
       setItens([novoItem, ...itens]);
       setNomeItem('');
       setDetalhes('');
@@ -113,9 +118,6 @@ const ItemScreen = () => {
 
       // Atualiza o valor total da coleção
       await atualizarValorTotalColecao();
-
-      navigation.navigate('Grupo', { grupoId, valorTotalGrupo: novoValorTotalGrupo });
-
     } catch (error) {
       console.error('Erro ao criar item:', error);
       Alert.alert('Erro', 'Não foi possível criar o item.');
@@ -233,17 +235,24 @@ const ItemScreen = () => {
     <Button title="Deletar" color="red" onPress={() => handleDeleteItem(item)} />
   );
 
-  const renderItem = ({ item }) => (
-    <Swipeable renderRightActions={() => renderRightActions(item)} renderLeftActions={() => renderLeftActions(item)}>
-      <View style={styles.item}>
-        <Text style={styles.itemNome}>{item.nome}</Text>
-        <Text style={styles.itemDetalhes}>Detalhes: {item.detalhes}</Text>
-        <Text style={styles.itemData}>Data de aquisição: {item.dataAquisicao}</Text>
-        <Text style={styles.itemValor}>Valor: {formatarValor(item.valor)}</Text>
-        <Text style={styles.itemDataCriacao}>Criado em: {item.dataCriacao}</Text>
-      </View>
-    </Swipeable>
-  );
+  const renderItem = ({ item }) => {
+    if (!item || !item.nome) return null; // Verifica se o item está definido
+    return (
+      <Swipeable renderRightActions={() => renderRightActions(item)} renderLeftActions={() => renderLeftActions(item)}>
+        <View style={styles.item}>
+          <Text style={styles.itemNome}>{item.nome}</Text>
+          <Text style={styles.itemDetalhes}>Detalhes: {item.detalhes}</Text>
+          <Text style={styles.itemData}>Data de aquisição: {item.dataAquisicao}</Text>
+          <Text style={styles.itemValor}>Valor: {formatarValor(item.valor)}</Text>
+          <Text style={styles.itemDataCriacao}>Criado em: {item.dataCriacao}</Text>
+        </View>
+      </Swipeable>
+    );
+  };
+
+  if (loading) {
+    return <ActivityIndicator size="large" color="#0000ff" />;
+  }
 
   return (
     <View style={styles.container}>
