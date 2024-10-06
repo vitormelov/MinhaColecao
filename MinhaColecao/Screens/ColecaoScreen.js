@@ -76,12 +76,37 @@ const ColecaoScreen = () => {
     }
   };
 
+  // Função para deletar todos os grupos e seus itens dentro da coleção
+  const deleteAllGruposInColecao = async (colecaoId) => {
+    try {
+      // Buscar todos os grupos na coleção
+      const gruposSnapshot = await getDocs(collection(db, 'colecoes', colecaoId, 'grupos'));
+      
+      // Para cada grupo, deletar os itens e depois o grupo
+      for (const grupoDoc of gruposSnapshot.docs) {
+        const grupoId = grupoDoc.id;
+
+        // Deletar todos os itens dentro de cada grupo
+        const itensSnapshot = await getDocs(collection(db, 'colecoes', colecaoId, 'grupos', grupoId, 'itens'));
+        const deleteItensPromises = itensSnapshot.docs.map((itemDoc) => 
+          deleteDoc(doc(db, 'colecoes', colecaoId, 'grupos', grupoId, 'itens', itemDoc.id))
+        );
+        await Promise.all(deleteItensPromises);
+
+        // Deletar o grupo
+        await deleteDoc(doc(db, 'colecoes', colecaoId, 'grupos', grupoId));
+      }
+    } catch (error) {
+      console.error('Erro ao deletar grupos da coleção:', error);
+    }
+  };
+
   // Função para deletar uma coleção e seus grupos e itens
   const handleDeleteColecao = async (colecao) => {
     try {
       const colecaoId = colecao.id;
 
-      // Deletar todos os grupos e itens da coleção (mesma lógica já implementada)
+      // Deletar todos os grupos e itens da coleção
       await deleteAllGruposInColecao(colecaoId);
 
       // Deletar a coleção
